@@ -55,7 +55,8 @@ the customer receives only the confirmation the agent hands them.
 - The agent can trust the set is complete: the UI states the total option count and
   guarantees filters only hide, never drop.
 - Options are comparable at a glance: airline, departure/arrival times, stop count, total
-  duration, and a price breakdown — sortable and filterable.
+  duration, a price breakdown, and estimated CO2 emissions — sortable (including by
+  emissions) and filterable (including a non-stop-only toggle).
 - The agent can select an option, capture passenger details, and book it.
 - Booking produces a confirmation with the full itinerary and a unique reference number.
 - Every booking is durably persisted and logged for finance reconciliation.

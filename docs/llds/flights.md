@@ -45,6 +45,7 @@ interface Itinerary {
   legs: Leg[];              // 1 leg = nonstop; N legs = N-1 stops
   durationMinutes: number;  // total incl. layovers
   stops: number;            // legs.length - 1
+  co2Kg: number;            // estimated CO2 emissions for this itinerary, kg
 }
 interface Leg {
   flightNumber: string;
@@ -58,6 +59,10 @@ interface PriceBreakdown {
 ```
 
 `total = (baseFare + taxes + fees)` is the all-passenger total; `perPassenger = total / passengers`.
+
+**Emissions.** Each itinerary carries `co2Kg`. An option's **total emissions** for sort/display
+is `outbound.co2Kg + (return?.co2Kg ?? 0)`. Emissions are a property of the flight, not of
+passenger count, so they are reported per-itinerary (not multiplied by passengers).
 
 ## Deterministic exhaustive generation
 
@@ -79,6 +84,10 @@ interface PriceBreakdown {
   non-empty, legs are in temporal order, each leg's `arriveTime > departTime`, and each
   connection's layover is ≥ a minimum connection time. The mock never emits an impossible
   itinerary.
+- **Emissions generation** — each itinerary's `co2Kg` is generated deterministically (from
+  the same seeded PRNG) and is a strictly positive number that scales with flight distance
+  (duration) and stop count (extra take-off/landing cycles add emissions). Same query →
+  same emissions.
 - **The mock always returns at least one option** for any well-formed route/date, so a
   literal empty set does not arise in the MVP. (See the empty-state contract below — the UI
   still defines the zero case so the completeness contract survives a future real provider.)
@@ -99,8 +108,17 @@ interface PriceBreakdown {
 
 ## Sort & filter
 
-- **Sort by**: price (total), total duration, departure time, stops.
+- **Sort by**: price (total), total duration, departure time, stops, **CO2 emissions** (total).
 - **Filter by**: stop count (nonstop / 1 / 2+), airline(s), departure-time window, price range.
+  Stop-count filtering considers the **whole trip**: it compares against
+  `max(outbound.stops, return?.stops ?? 0)`, so a round-trip qualifies as N-stop only if
+  *both* directions are within N.
+- **Non-stop-only toggle**: a single results-view control that, when enabled, hides every
+  option with one or more stops **in either direction**. It is implemented as the stop-count
+  filter pinned to `maxStops = 0` — *not* a parallel piece of filter state — so it composes
+  with the existing filter machinery and is cleared by **Clear filters** like any other
+  filter. Enabling it hides multi-stop options from the visible subset N while keeping them
+  counted in M (hide-never-drop); disabling it (or clearing filters) restores them.
 - **Price ceiling** from the search applies as an *initial, clearable* filter: options whose
   `price.total` exceeds the ceiling are hidden by default but remain counted in M, and the
   view shows e.g. "12 of 40 within budget — Clear to see all". This preserves hide-never-drop.
@@ -155,6 +173,8 @@ interface ComplianceResult {
 | Policy enforcement | Flag + list violations, never filter | Hard filter; ignore policy | Keeps set complete (trust) while surfacing violations; agent decides |
 | Price ceiling | Initial clearable filter (hide-not-drop) | Hard drop; flag like policy | Honors budget while preserving recoverability of full set |
 | Policy catalog | Small predefined in-code set | Free-form rule editor; DB-backed policies | MVP simplicity; realistic (companies have named policies) |
+| Emissions model | `co2Kg` per itinerary; option total = outbound + return | Per-leg emissions; per-passenger emissions | Itinerary-level total is what agents compare; emissions are per-flight, not per-passenger |
+| Non-stop toggle | Reuse stop-count filter pinned to `maxStops = 0` | Separate `nonstopOnly` boolean in filter state | Avoids parallel state that could disagree with a future stops dropdown; composes with Clear filters for free |
 
 ## Open Questions & Future Decisions
 

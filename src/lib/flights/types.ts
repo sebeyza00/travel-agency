@@ -15,6 +15,7 @@ export interface Itinerary {
   legs: Leg[]; // non-empty; 1 leg = nonstop
   durationMinutes: number; // total incl. layovers
   stops: number; // legs.length - 1
+  co2Kg: number; // estimated CO2 emissions for this itinerary, kg
 }
 
 export interface PriceBreakdown {

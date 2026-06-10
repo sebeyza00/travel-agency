@@ -2,7 +2,7 @@
 // FLIGHTS segment UI — results comparison with view lenses.
 // @spec FLIGHTS-UI-001, FLIGHTS-UI-003, FLIGHTS-UI-004, FLIGHTS-UI-005,
 //       FLIGHTS-UI-006, FLIGHTS-UI-007, FLIGHTS-UI-008, FLIGHTS-UI-009,
-//       FLIGHTS-POL-001, BOOKING-UI-001, BOOKING-UI-003
+//       FLIGHTS-UI-011, FLIGHTS-UI-012, FLIGHTS-POL-001, BOOKING-UI-001, BOOKING-UI-003
 
 import { useMemo, useState } from "react";
 import type { SearchCriteria } from "@/lib/search/criteria";
@@ -11,6 +11,7 @@ import {
   deriveResultsView,
   emptyFilters,
   defaultView,
+  totalCo2,
   type SortKey,
   type ViewState,
 } from "@/lib/flights/lenses";
@@ -80,7 +81,19 @@ export function ResultsView({ result, criteria, onBook }: ResultsViewProps) {
               <option value="duration">Duration</option>
               <option value="departure">Departure</option>
               <option value="stops">Stops</option>
+              <option value="co2">CO₂ emissions</option>
             </select>
+          </label>
+          {/* @spec FLIGHTS-UI-011 */}
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={view.filters.maxStops === 0}
+              onChange={(e) =>
+                setView({ ...view, filters: { ...view.filters, maxStops: e.target.checked ? 0 : null } })
+              }
+            />
+            Non-stop only
           </label>
           <label className="flex items-center gap-1">
             Policy
@@ -113,6 +126,13 @@ export function ResultsView({ result, criteria, onBook }: ResultsViewProps) {
         </p>
       )}
 
+      {derived.visible.length === 0 ? (
+        /* @spec FLIGHTS-UI-012 — filters hid everything (N=0) while M>0 */
+        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-600">
+          No options match your filters. All {result.total} options are still here — use
+          “Clear filters” above to see them.
+        </div>
+      ) : (
       <ul className="flex flex-col gap-3">
         {derived.visible.map((o) => (
           <li key={o.id} className="rounded-lg border border-slate-200 bg-white p-4">
@@ -133,6 +153,8 @@ export function ResultsView({ result, criteria, onBook }: ResultsViewProps) {
               <div className="flex flex-col items-end gap-2">
                 <div className="text-lg font-semibold">${o.price.total}</div>
                 <div className="text-xs text-slate-500">${o.price.perPassenger} / passenger</div>
+                {/* @spec FLIGHTS-UI-004 */}
+                <div className="text-xs text-slate-500">≈ {totalCo2(o)} kg CO₂</div>
                 <button
                   type="button"
                   className="rounded bg-slate-900 px-4 py-1.5 text-sm font-medium text-white"
@@ -145,6 +167,7 @@ export function ResultsView({ result, criteria, onBook }: ResultsViewProps) {
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 }

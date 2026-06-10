@@ -101,6 +101,37 @@ describe("generateOptions — price breakdown", () => {
   });
 });
 
+describe("generateOptions — emissions", () => {
+  it("gives every itinerary a strictly positive CO2 estimate", () => {
+    // @spec FLIGHTS-DATA-002
+    const { options } = generateOptions(criteria({ flexibilityDays: 1 }));
+    for (const o of options) {
+      expect(o.outbound.co2Kg).toBeGreaterThan(0);
+      expect(Number.isFinite(o.outbound.co2Kg)).toBe(true);
+      expect(o.return).not.toBeNull();
+      expect(o.return!.co2Kg).toBeGreaterThan(0);
+    }
+  });
+
+  it("generates emissions deterministically", () => {
+    // @spec FLIGHTS-DATA-002
+    const a = generateOptions(criteria());
+    const b = generateOptions(criteria());
+    expect(a.options.map((o) => o.outbound.co2Kg)).toEqual(b.options.map((o) => o.outbound.co2Kg));
+  });
+
+  it("emits higher emissions for more stops, all else deterministic", () => {
+    // @spec FLIGHTS-DATA-002 — extra take-off/landing cycles add emissions
+    const { options } = generateOptions(criteria({ returnDate: null, flexibilityDays: 7 }));
+    const nonstop = options.filter((o) => o.outbound.stops === 0).map((o) => o.outbound.co2Kg);
+    const multi = options.filter((o) => o.outbound.stops >= 2).map((o) => o.outbound.co2Kg);
+    if (nonstop.length && multi.length) {
+      const avg = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+      expect(avg(multi)).toBeGreaterThan(avg(nonstop));
+    }
+  });
+});
+
 describe("generateOptions — date flexibility", () => {
   it("spans a symmetric +/- N day departure window", () => {
     // @spec FLIGHTS-API-006

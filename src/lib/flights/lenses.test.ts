@@ -8,15 +8,15 @@ import {
   type FilterState,
   type ViewState,
 } from "@/lib/flights/lenses";
-import { makeOption } from "@/test/fixtures";
+import { makeOption, makeItinerary } from "@/test/fixtures";
 import type { FlightOption } from "@/lib/flights/types";
 
-// A: $300, 600m, depart 12:00, 1 stop, economy, DL
-// B: $900, 300m, depart 06:00, 0 stop, business, AA
-// C: $500, 400m, depart 09:00, 2 stop, economy, UA
-const A = makeOption({ id: "A", airlineCode: "DL", cabinClass: "economy", stops: 1, perPassenger: 300, durationMinutes: 600, departIso: "2026-07-01T12:00:00.000Z" });
-const B = makeOption({ id: "B", airlineCode: "AA", cabinClass: "business", stops: 0, perPassenger: 900, durationMinutes: 300, departIso: "2026-07-01T06:00:00.000Z" });
-const C = makeOption({ id: "C", airlineCode: "UA", cabinClass: "economy", stops: 2, perPassenger: 500, durationMinutes: 400, departIso: "2026-07-01T09:00:00.000Z" });
+// A: $300, 600m, depart 12:00, 1 stop, 300kg, economy, DL
+// B: $900, 300m, depart 06:00, 0 stop, 100kg, business, AA
+// C: $500, 400m, depart 09:00, 2 stop, 200kg, economy, UA
+const A = makeOption({ id: "A", airlineCode: "DL", cabinClass: "economy", stops: 1, perPassenger: 300, durationMinutes: 600, departIso: "2026-07-01T12:00:00.000Z", co2Kg: 300 });
+const B = makeOption({ id: "B", airlineCode: "AA", cabinClass: "business", stops: 0, perPassenger: 900, durationMinutes: 300, departIso: "2026-07-01T06:00:00.000Z", co2Kg: 100 });
+const C = makeOption({ id: "C", airlineCode: "UA", cabinClass: "economy", stops: 2, perPassenger: 500, durationMinutes: 400, departIso: "2026-07-01T09:00:00.000Z", co2Kg: 200 });
 const ALL: FlightOption[] = [A, B, C];
 
 const ids = (opts: FlightOption[]) => opts.map((o) => o.id);
@@ -40,6 +40,11 @@ describe("sortOptions", () => {
     expect(ids(sortOptions(ALL, "departure"))).toEqual(["B", "C", "A"]);
     expect(ids(sortOptions(ALL, "stops"))).toEqual(["B", "A", "C"]);
   });
+
+  it("sorts by total CO2 emissions, lowest first", () => {
+    // @spec FLIGHTS-UI-005
+    expect(ids(sortOptions(ALL, "co2"))).toEqual(["B", "C", "A"]); // 100, 200, 300 kg
+  });
 });
 
 describe("filterOptions", () => {
@@ -49,6 +54,17 @@ describe("filterOptions", () => {
     expect(ids(filterOptions(ALL, filters({ airlines: ["UA"] })))).toEqual(["C"]);
     expect(new Set(ids(filterOptions(ALL, filters({ priceRange: { min: 400, max: 1000 } }))))).toEqual(new Set(["B", "C"]));
     expect(new Set(ids(filterOptions(ALL, filters({ departWindow: { startHour: 8, endHour: 13 } }))))).toEqual(new Set(["A", "C"]));
+  });
+
+  it("treats stop-count filtering as whole-trip for round trips", () => {
+    // @spec FLIGHTS-UI-006 — a round-trip is non-stop only if BOTH directions are non-stop
+    const nonstopBoth = { ...makeOption({ id: "NS", stops: 0, roundTrip: true }) };
+    const stopOnReturn = {
+      ...makeOption({ id: "RS", stops: 0, roundTrip: true }),
+      return: makeItinerary("2026-07-08T18:00:00.000Z", 400, 1),
+    };
+    const result = filterOptions([nonstopBoth, stopOnReturn], filters({ maxStops: 0 }));
+    expect(ids(result)).toEqual(["NS"]); // RS excluded: its return leg has a stop
   });
 });
 

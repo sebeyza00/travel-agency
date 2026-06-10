@@ -9,7 +9,13 @@ const totalDuration = (o: FlightOption) =>
 
 const departTime = (o: FlightOption) => Date.parse(o.outbound.legs[0].departTime);
 
-export type SortKey = "price" | "duration" | "departure" | "stops";
+/** Total emissions across the trip (outbound + return). */
+export const totalCo2 = (o: FlightOption) => o.outbound.co2Kg + (o.return?.co2Kg ?? 0);
+
+/** Maximum stops across the trip — a round-trip is N-stop only if both directions are. */
+const tripStops = (o: FlightOption) => Math.max(o.outbound.stops, o.return?.stops ?? 0);
+
+export type SortKey = "price" | "duration" | "departure" | "stops" | "co2";
 
 export interface FilterState {
   maxStops: number | null; // null = any
@@ -67,6 +73,7 @@ export function sortOptions(options: FlightOption[], sort: SortKey): FlightOptio
     duration: (a, b) => totalDuration(a) - totalDuration(b),
     departure: (a, b) => departTime(a) - departTime(b),
     stops: (a, b) => a.outbound.stops - b.outbound.stops,
+    co2: (a, b) => totalCo2(a) - totalCo2(b), // ascending: lowest emissions first
   };
   return copy.sort(cmp[sort]);
 }
@@ -74,7 +81,7 @@ export function sortOptions(options: FlightOption[], sort: SortKey): FlightOptio
 /** @spec FLIGHTS-UI-006 */
 export function filterOptions(options: FlightOption[], filters: FilterState): FlightOption[] {
   return options.filter((o) => {
-    if (filters.maxStops != null && o.outbound.stops > filters.maxStops) return false;
+    if (filters.maxStops != null && tripStops(o) > filters.maxStops) return false;
     if (filters.airlines.length > 0 && !filters.airlines.includes(o.airline.code)) return false;
     if (filters.priceRange && (o.price.total < filters.priceRange.min || o.price.total > filters.priceRange.max)) {
       return false;

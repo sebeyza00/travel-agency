@@ -93,7 +93,10 @@ function buildItinerary(
     cursor = arr + layover * 60_000;
   }
   const end = Date.parse(legs[legs.length - 1].arriveTime);
-  return { legs, durationMinutes: Math.round((end - start) / 60_000), stops };
+  const durationMinutes = Math.round((end - start) / 60_000);
+  // Emissions scale with flight time and with each extra take-off/landing cycle.
+  const co2Kg = Math.round(durationMinutes * 0.45 + stops * 90);
+  return { legs, durationMinutes, stops, co2Kg };
 }
 
 function buildPrice(cabin: CabinClass, stops: number, passengers: number, rand: () => number): PriceBreakdown {

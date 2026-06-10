@@ -10,6 +10,7 @@ export function makeItinerary(
   departIso: string,
   durationMinutes: number,
   stops: number,
+  co2Kg = 200 + stops * 50,
 ): Itinerary {
   const legCount = stops + 1;
   const legs = [];
@@ -26,7 +27,7 @@ export function makeItinerary(
     });
     cursor = arr + 60 * 60_000; // 60 min layover
   }
-  return { legs, durationMinutes, stops };
+  return { legs, durationMinutes, stops, co2Kg };
 }
 
 export interface MakeOptionOverrides {
@@ -40,6 +41,7 @@ export interface MakeOptionOverrides {
   departIso?: string;
   durationMinutes?: number;
   roundTrip?: boolean;
+  co2Kg?: number; // per-itinerary emissions; applied to outbound and (if any) return
 }
 
 export function makeOption(o: MakeOptionOverrides = {}): FlightOption {
@@ -56,11 +58,12 @@ export function makeOption(o: MakeOptionOverrides = {}): FlightOption {
     passengers,
   };
   const departIso = o.departIso ?? "2026-07-01T08:00:00.000Z";
+  const co2 = o.co2Kg ?? 200 + (o.stops ?? 0) * 50;
   return {
     id: o.id ?? "opt-1",
     airline: { name: o.airlineName ?? "Delta", code: o.airlineCode ?? "DL" },
-    outbound: makeItinerary(departIso, o.durationMinutes ?? 330, o.stops ?? 0),
-    return: o.roundTrip ? makeItinerary("2026-07-08T18:00:00.000Z", 330, o.stops ?? 0) : null,
+    outbound: makeItinerary(departIso, o.durationMinutes ?? 330, o.stops ?? 0, co2),
+    return: o.roundTrip ? makeItinerary("2026-07-08T18:00:00.000Z", 330, o.stops ?? 0, co2) : null,
     cabinClass: o.cabinClass ?? "economy",
     price,
     compliance: { compliant: true, violations: [] },
