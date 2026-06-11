@@ -30,12 +30,19 @@ agents on the internal network. Four load-bearing disciplines:
    full set. The agent can always prove to themselves that nothing was silently dropped.
 
 3. **Booking as a first-class transaction.** Selecting an option opens a booking step that
-   captures each passenger, then produces a confirmation containing the full itinerary,
-   a price breakdown, and a unique booking reference number the agent can pass to the
-   customer.
+   captures each passenger and an optional customer email, then produces a confirmation
+   containing the full itinerary, a price breakdown, and a unique booking reference number
+   the agent can pass to the customer.
 
 4. **Durable audit.** Every booking is written to SQLite alongside an append-only audit
    log entry, so finance can reconcile later.
+
+5. **Optional confirmation email.** When the agent supplies a customer email at booking,
+   the confirmation is emailed to the customer after the booking is durably persisted.
+   Email is best-effort and never blocks or rolls back a booking: the persisted booking is
+   the source of truth, and a send failure is surfaced to the agent without losing the
+   booking. Delivery goes through an `EmailSender` interface (mock implementation in this
+   MVP, swappable for a real provider).
 
 The mock provider is deliberately isolated behind an interface so a real GDS/airline
 integration can replace it without touching search UX, booking, or audit.
@@ -69,7 +76,12 @@ the customer receives only the confirmation the agent hands them.
   interface. No real fares, seat inventory, or ticketing.
 - **No payment processing.** Booking records the intent and the priced itinerary; it does
   not charge a card or issue a real ticket.
-- **No customer-facing surface.** No public site, no customer login, no email delivery.
+- **No public customer surface.** No public site and no customer login. The confirmation
+  may optionally be emailed to the customer (see Approach), but the customer never logs in
+  or browses — the agent remains the only interactive user.
+- **No real email provider in this MVP.** Email delivery goes through a mock sender behind
+  an interface that records what would be sent; no real transactional email service,
+  account, or deliverability handling. Swappable for a real provider later.
 - **Not mobile-first.** Desktop is the priority.
 - **No multi-agent collaboration, roles, or permissions** in this MVP.
 
@@ -95,6 +107,7 @@ flowchart TD
         SearchAPI[/Route: search/]
         BookingAPI[/Route: bookings/]
         Provider[FlightProvider interface\n-> MockFlightProvider\ndeterministic, exhaustive]
+        Email[EmailSender interface\n-> MockEmailSender]
         DB[(SQLite\nbookings + audit_log)]
     end
 
@@ -102,6 +115,7 @@ flowchart TD
     Provider --> SearchAPI --> Results
     Results --> BookingForm --> BookingAPI
     BookingAPI --> DB
+    BookingAPI -.->|"if customer email given (best-effort, after commit)"| Email
     BookingAPI --> Confirmation
     Confirmation --> Agent
 ```
@@ -112,9 +126,11 @@ flowchart TD
   cabin, price ceiling, corporate policy) and validation.
 - **FLIGHTS** — the `FlightProvider` interface, the deterministic exhaustive mock, the
   option/price-breakdown model, and the completeness contract (total count, hide-not-drop).
-- **BOOKING** — option selection, passenger capture, confirmation, reference-number
-  generation.
+- **BOOKING** — option selection, passenger capture, optional customer email, confirmation,
+  reference-number generation.
 - **AUDIT** — booking persistence and the append-only finance audit log.
+- **EMAIL** — the `EmailSender` interface, its mock implementation, and the confirmation
+  email template; triggered by BOOKING after a booking is persisted.
 
 Final segment boundaries are settled in Phase 2 (LLDs).
 
@@ -130,6 +146,7 @@ Final segment boundaries are settled in Phase 2 (LLDs).
 | Persistence | SQLite, bookings table + append-only audit_log table | Real relational store, zero infra, queryable by finance, migratable to Postgres later | JSON/JSONL files (weak querying, concurrent-write risk); hosted Postgres (infra overkill for MVP) |
 | Auth | None; single trusted internal actor | Explicitly out of scope per the brief | App-level login (out of scope) |
 | Stack | Next.js App Router + TypeScript + Tailwind, desktop-first | Matches the existing scaffold; one deployable; server + client in one place | Separate SPA + API backend (more parts than an MVP needs) |
+| Confirmation email | Optional; mock `EmailSender` behind an interface; best-effort after the booking commits | Consistent with the mock-provider pattern; never risks a booking for a notification; real provider slots in later | Required email (blocks bookings without an address); real provider now (first external integration, heavier); send inside the booking transaction (would couple a notification to durability) |
 
 ## Success Metrics
 

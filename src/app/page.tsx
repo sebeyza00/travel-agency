@@ -7,7 +7,7 @@ import { ResultsView } from "@/components/ResultsView";
 import { BookingFlow } from "@/components/BookingFlow";
 import type { SearchCriteria } from "@/lib/search/criteria";
 import type { FlightOption, SearchResult } from "@/lib/flights/types";
-import type { BookingInput, SavedBooking } from "@/lib/booking/types";
+import type { BookingInput, BookingResult } from "@/lib/booking/types";
 
 type Step = "search" | "results" | "booking";
 
@@ -40,14 +40,14 @@ export default function Home() {
     }
   }
 
-  async function submitBooking(input: BookingInput): Promise<SavedBooking> {
+  async function submitBooking(input: BookingInput): Promise<BookingResult> {
     const res = await fetch("/api/bookings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
     });
     if (!res.ok) throw new Error("booking failed");
-    return (await res.json()) as SavedBooking;
+    return (await res.json()) as BookingResult;
   }
 
   return (

@@ -23,12 +23,25 @@ Results list ──[ Book ]──► Passenger capture ──[ Confirm booking ]
 1. Agent clicks **Book** on a `FlightOption` (compliant or not — a non-compliant option can
    still be booked; the agent owns that call).
 2. Passenger capture: one row per passenger, count fixed to `criteria.passengers`.
-3. On **Confirm booking**, the client POSTs the option snapshot + passengers to the server.
-   The **Confirm button is disabled on first click** to guard against accidental
-   double-submit; there is no server-side idempotency key in the MVP (single trusted user —
-   see Open Questions).
-4. Server generates a reference number, persists via AUDIT, returns the saved booking.
-5. Confirmation view renders the full record.
+3. On **Confirm booking**, the client POSTs the option snapshot + passengers + optional
+   customer email to the server. The **Confirm button is disabled on first click** to guard
+   against accidental double-submit; there is no server-side idempotency key in the MVP
+   (single trusted user — see Open Questions).
+4. Server generates a reference number, persists via AUDIT (including the customer email),
+   then — **after** the booking is durably persisted — best-effort sends the confirmation
+   email via EMAIL if a customer email was given. The response carries the saved booking and
+   an `emailStatus` of `sent | failed | skipped`.
+5. Confirmation view renders the full record and the email status.
+
+The email send is sequenced strictly after persistence and never affects it: a send failure
+yields `emailStatus: "failed"` but the booking is returned and confirmed regardless
+(see `docs/llds/email.md § Invocation & failure model`).
+
+**Booking-request failure vs. email failure are distinct.** A persisted booking returns an
+HTTP success response carrying `emailStatus`; the client shows the confirmation (with the
+status line). `BOOKING-UI-006`'s "confirm request failed → error, no confirmation" applies
+only when the booking itself did not persist (a non-success response or thrown request). The
+client decides which path to take from the HTTP outcome, not from `emailStatus`.
 
 Snapshots are taken by **serializing the option and criteria to JSON at persist time**,
 which is inherently a deep copy — later mutation of any in-memory object cannot alter a
@@ -45,7 +58,21 @@ stored booking.
 Exactly `criteria.passengers` passengers are required; the booking cannot be confirmed with
 fewer or more (the form renders exactly that many passenger rows). `dateOfBirth` must be a
 date strictly in the past relative to booking time; no minimum/maximum age check in the MVP.
-No passport/contact fields in the MVP.
+No passport fields in the MVP.
+
+## Customer email (optional)
+
+The booking step also captures a single **optional booking-level customer email** (not
+per-passenger). It is the address the confirmation is emailed to (see `docs/llds/email.md`).
+
+- Optional: a booking may be confirmed with no customer email (the agent still hands over
+  the on-screen confirmation). An empty or whitespace-only field counts as **not provided**
+  and yields `emailStatus: "skipped"` — never a send attempt.
+- If provided, it must look like an email address (`^[^@\s]+@[^@\s]+\.[^@\s]+$`); an
+  ill-formed address blocks confirmation with an inline error.
+- Captured in the booking step UI alongside the passenger rows; on confirm it is included in
+  the booking submission. The passenger-capture contract (`PassengerForm`) is unchanged; the
+  email field and its validation live in the surrounding booking flow.
 
 ## Reference number
 
@@ -65,9 +92,12 @@ A confirmed booking captures, at minimum:
   duration, price breakdown, cabin, **compliance result computed under the policy lens
   active in the results view at booking time** — see FLIGHTS view lenses)
 - `passengers` — the captured list
+- `customerEmail` — the optional customer email (`null` when not provided)
 - `totalPrice`, `currency`, `cabinClass`, `status` (`confirmed` for MVP)
 
-Persistence shape and the audit entry are owned by AUDIT (`docs/llds/audit.md`).
+`emailStatus` (`sent | failed | skipped`) is **not** part of the persisted booking — it is a
+transient outcome of the post-commit send, returned in the API response for the confirmation
+view. Persistence shape and the audit entry are owned by AUDIT (`docs/llds/audit.md`).
 
 ## Confirmation view
 
@@ -81,12 +111,18 @@ Persistence shape and the audit entry are owned by AUDIT (`docs/llds/audit.md`).
 │  Passengers: Jane Doe, John Doe                             │
 │  Price: base $420 + taxes $58 + fees $22 = $500 ×2 = $1000  │
 │  Booked: 2026-06-09 14:32                                   │
+│  ✉ Confirmation emailed to jane@example.com                 │
 │                                  [ Print / hand to customer ]│
 └────────────────────────────────────────────────────────────┘
 ```
 
 The confirmation is the artifact the agent passes to the customer; it contains everything
-needed without a login.
+needed without a login. An **email-status line** reflects the post-commit send:
+
+- `sent` → "Confirmation emailed to {address}".
+- `failed` → "Couldn't email the confirmation — the booking is still confirmed." (the agent
+  can still hand over / print the on-screen confirmation).
+- `skipped` → no email line (no address was given).
 
 ## Decisions & Alternatives
 
@@ -94,7 +130,9 @@ needed without a login.
 |---|---|---|---|
 | Booking = snapshot | Store full option + criteria at booking time | Reference back to a live search | Mocked flights are regenerated; the record must stand alone |
 | Non-compliant booking | Allowed; agent's call | Block booking of flagged options | Policy flags inform; they don't override the agent (per HLD) |
-| Passenger fields | name + DOB only | + passport, contact | MVP minimalism; no ticketing yet |
+| Passenger fields | name + DOB only | + passport | MVP minimalism; no ticketing yet |
+| Customer email | One optional booking-level address | Required; per-passenger emails | Email is optional (never blocks a booking); the customer is one recipient, not per-traveller |
+| Email-send timing | After commit, in the booking route; status returned, not persisted | Inside the booking transaction; persist emailStatus | A notification must not gate durability; status is transient UI feedback (see EMAIL LLD) |
 | Reference format | 6-char ambiguity-free alphanumeric | Sequential integer; UUID | PNR-like, human-readable over the phone |
 | Persistence ownership | BOOKING calls AUDIT layer | BOOKING writes DB directly | Keeps the audit write and booking write atomic in one owner (AUDIT) |
 

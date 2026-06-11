@@ -16,6 +16,11 @@ without its audit entry (a falsification signal in the HLD).
 - **SQLite** via `better-sqlite3` (synchronous, no separate server, single file at
   `data/travel-agency.db`). Route handlers run in the Node runtime (not edge).
 - Schema created/migrated by an idempotent init routine run at server startup.
+- **Additive column migrations.** `CREATE TABLE IF NOT EXISTS` does not alter a table that
+  already exists, so new nullable columns (e.g. `customer_email`) are added by an idempotent
+  step that inspects `PRAGMA table_info(bookings)` and issues `ALTER TABLE ... ADD COLUMN`
+  only when the column is absent. This lets a database created by an earlier version pick up
+  the new column without data loss.
 
 ## Schema
 
@@ -33,6 +38,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   total_price      REAL    NOT NULL,
   currency         TEXT    NOT NULL DEFAULT 'USD',
   status           TEXT    NOT NULL DEFAULT 'confirmed',
+  customer_email   TEXT,                        -- optional confirmation recipient; null if none
   criteria_json    TEXT    NOT NULL,            -- full SearchCriteria snapshot
   option_json      TEXT    NOT NULL,            -- full FlightOption snapshot
   passengers_json  TEXT    NOT NULL             -- full passenger list snapshot
@@ -64,6 +70,10 @@ interface AuditStore {
 }
 ```
 
+- `customer_email` stores the optional confirmation recipient captured at booking (`null`
+  when none was given). It is part of the booking record only; it is **not** copied into the
+  finance `AuditPayload` (email is not finance data) and email *delivery* is not logged here
+  (see EMAIL LLD).
 - `actor` is the constant `'internal-agent'` — the app has a single trusted internal user
   (no auth in scope per the HLD); the field exists so a real identity can populate it later.
 - `event_type` is `'booking_created'` in the MVP; the column generalizes to future events

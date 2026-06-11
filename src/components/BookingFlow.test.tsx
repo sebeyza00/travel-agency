@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { BookingFlow } from "@/components/BookingFlow";
 import { makeCriteria, makeOption, makePassenger } from "@/test/fixtures";
-import type { SavedBooking } from "@/lib/booking/types";
+import type { BookingResult, EmailStatus, SavedBooking } from "@/lib/booking/types";
 
 function savedBooking(): SavedBooking {
   const option = makeOption({ passengers: 1, perPassenger: 500 });
@@ -14,12 +14,14 @@ function savedBooking(): SavedBooking {
     criteria: makeCriteria({ passengers: 1 }),
     option,
     passengers: [makePassenger()],
+    customerEmail: null,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",
     status: "confirmed",
   };
 }
+const result = (emailStatus: EmailStatus = "skipped"): BookingResult => ({ booking: savedBooking(), emailStatus });
 
 async function fillOnePassenger() {
   await userEvent.type(screen.getByLabelText(/first name/i), "Jane");
@@ -31,9 +33,26 @@ const criteria = makeCriteria({ passengers: 1 });
 const option = makeOption({ passengers: 1 });
 
 describe("BookingFlow", () => {
+  it("presents an optional customer-email field", () => {
+    // @spec BOOKING-UI-007
+    render(<BookingFlow criteria={criteria} option={option} submit={vi.fn()} />);
+    expect(screen.getByLabelText(/customer email/i)).toBeInTheDocument();
+  });
+
+  it("blocks confirmation with an inline error when the customer email is malformed", async () => {
+    // @spec BOOKING-VAL-004
+    const submit = vi.fn(() => Promise.resolve(result()));
+    render(<BookingFlow criteria={criteria} option={option} submit={submit} />);
+    await fillOnePassenger();
+    await userEvent.type(screen.getByLabelText(/customer email/i), "not-an-email");
+    await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole("alert").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("disables the confirm control once a submit is in flight", async () => {
     // @spec BOOKING-UI-004
-    const submit = vi.fn(() => new Promise<SavedBooking>(() => {})); // never resolves
+    const submit = vi.fn(() => new Promise<BookingResult>(() => {})); // never resolves
     render(<BookingFlow criteria={criteria} option={option} submit={submit} />);
     await fillOnePassenger();
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));
@@ -43,7 +62,7 @@ describe("BookingFlow", () => {
 
   it("shows a confirmation with the reference on success", async () => {
     // @spec BOOKING-UI-005
-    const submit = vi.fn(() => Promise.resolve(savedBooking()));
+    const submit = vi.fn(() => Promise.resolve(result("sent")));
     render(<BookingFlow criteria={criteria} option={option} submit={submit} />);
     await fillOnePassenger();
     await userEvent.click(screen.getByRole("button", { name: /confirm/i }));

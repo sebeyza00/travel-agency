@@ -17,6 +17,16 @@ export interface BookingInput {
   criteria: SearchCriteria;
   option: FlightOption; // compliance already computed under the active policy lens
   passengers: Passenger[];
+  customerEmail?: string | null; // optional confirmation recipient
+}
+
+/** Outcome of the post-commit confirmation email. */
+export type EmailStatus = "sent" | "failed" | "skipped";
+
+/** The booking API result: the persisted booking plus the email outcome. */
+export interface BookingResult {
+  booking: SavedBooking;
+  emailStatus: EmailStatus;
 }
 
 /** A persisted booking returned to the confirmation view. */
@@ -27,6 +37,7 @@ export interface SavedBooking {
   criteria: SearchCriteria;
   option: FlightOption;
   passengers: Passenger[];
+  customerEmail: string | null; // optional confirmation recipient; null when none
   totalPrice: number;
   currency: "USD";
   cabinClass: CabinClass;

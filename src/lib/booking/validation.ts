@@ -18,6 +18,16 @@ export type PassengerValidationResult =
  * `now` is injectable so the DOB-in-the-past rule is testable.
  * @spec BOOKING-VAL-001, BOOKING-VAL-002, BOOKING-VAL-003
  */
+/**
+ * An optional customer email is valid when it is empty (not provided) or matches a
+ * basic email shape. @spec BOOKING-VAL-004
+ */
+export function isCustomerEmailValid(email: string | null | undefined): boolean {
+  const trimmed = (email ?? "").trim();
+  if (trimmed === "") return true; // empty = not provided, allowed
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmed);
+}
+
 export function validatePassengers(
   passengers: Partial<Passenger>[],
   expectedCount: number,

@@ -93,5 +93,5 @@ export function makeBookingInput(overrides: Partial<BookingInput> = {}): Booking
   const passengers = overrides.passengers ?? [makePassenger(), makePassenger({ firstName: "John" })];
   const criteria = overrides.criteria ?? makeCriteria({ passengers: passengers.length });
   const option = overrides.option ?? makeOption({ passengers: passengers.length, perPassenger: 500 });
-  return { criteria, option, passengers };
+  return { criteria, option, passengers, customerEmail: overrides.customerEmail ?? null };
 }

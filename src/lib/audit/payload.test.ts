@@ -12,6 +12,7 @@ function savedBooking(): SavedBooking {
     criteria: makeCriteria({ passengers: 2, cabinClass: "economy", departureDate: "2026-07-01", returnDate: "2026-07-08" }),
     option,
     passengers: [makePassenger(), makePassenger({ firstName: "John" })],
+    customerEmail: null,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",

@@ -2,11 +2,12 @@
 // BOOKING segment UI — confirmation.
 // @spec BOOKING-UI-005
 
-import type { SavedBooking } from "@/lib/booking/types";
+import type { EmailStatus, SavedBooking } from "@/lib/booking/types";
 import type { Itinerary } from "@/lib/flights/types";
 
 export interface ConfirmationProps {
   booking: SavedBooking;
+  emailStatus?: EmailStatus;
 }
 
 const fmtTime = (iso: string) =>
@@ -25,7 +26,7 @@ function Leg({ label, itin }: { label: string; itin: Itinerary }) {
   );
 }
 
-export function Confirmation({ booking }: ConfirmationProps) {
+export function Confirmation({ booking, emailStatus }: ConfirmationProps) {
   const { option, price } = { option: booking.option, price: booking.option.price };
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-emerald-300 bg-emerald-50 p-6">
@@ -47,6 +48,16 @@ export function Confirmation({ booking }: ConfirmationProps) {
         <span className="font-semibold">${booking.totalPrice}</span> ({price.currency})
       </div>
       <div className="text-xs text-slate-500">Booked: {booking.createdAt.replace("T", " ").slice(0, 16)} UTC</div>
+
+      {/* @spec BOOKING-UI-008 */}
+      {emailStatus === "sent" && (
+        <div className="text-sm text-emerald-800">✉ Confirmation emailed to {booking.customerEmail}</div>
+      )}
+      {emailStatus === "failed" && (
+        <div className="text-sm text-amber-700">
+          Couldn’t email the confirmation — the booking is still confirmed; hand over or print this page.
+        </div>
+      )}
 
       <div className="flex justify-end">
         <button type="button" onClick={() => window.print()}

@@ -1,6 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { validatePassengers } from "@/lib/booking/validation";
+import { validatePassengers, isCustomerEmailValid } from "@/lib/booking/validation";
 import { makePassenger } from "@/test/fixtures";
+
+describe("isCustomerEmailValid", () => {
+  it("allows an empty/whitespace/absent email but rejects a malformed one", () => {
+    // @spec BOOKING-VAL-004
+    expect(isCustomerEmailValid("")).toBe(true);
+    expect(isCustomerEmailValid("   ")).toBe(true);
+    expect(isCustomerEmailValid(null)).toBe(true);
+    expect(isCustomerEmailValid(undefined)).toBe(true);
+    expect(isCustomerEmailValid("jane@example.com")).toBe(true);
+    expect(isCustomerEmailValid("not-an-email")).toBe(false);
+    expect(isCustomerEmailValid("jane@nodot")).toBe(false);
+    expect(isCustomerEmailValid("jane @example.com")).toBe(false);
+  });
+});
 
 const NOW = new Date("2026-06-09T12:00:00.000Z");
 

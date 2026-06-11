@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import Database from "better-sqlite3";
 import { openAuditStore, type AuditStore } from "@/lib/audit/store";
 import { makeBookingInput } from "@/test/fixtures";
 
@@ -98,6 +99,26 @@ describe("AuditStore.createBooking", () => {
     store.close();
   });
 
+  it("persists the customer email and keeps it out of the audit payload", () => {
+    // @spec AUDIT-API-007
+    const store = open();
+    const saved = store.createBooking(makeBookingInput({ customerEmail: "cust@example.com" }));
+    expect(saved.customerEmail).toBe("cust@example.com");
+    expect(store.getBookingByReference("ABC234")?.customerEmail).toBe("cust@example.com");
+    const payload = store.listAuditLog()[0].payload as unknown as Record<string, unknown>;
+    expect(payload.customerEmail).toBeUndefined();
+    expect(JSON.stringify(payload)).not.toContain("cust@example.com");
+    store.close();
+  });
+
+  it("stores a null customer email when none is provided", () => {
+    // @spec AUDIT-API-007
+    const store = open();
+    const saved = store.createBooking(makeBookingInput({ customerEmail: null }));
+    expect(saved.customerEmail).toBeNull();
+    store.close();
+  });
+
   it("retries on reference collision and, when exhausted, fails without writing a partial row", () => {
     // @spec BOOKING-API-003, AUDIT-API-006
     const store = open({ generateReference: refSeq("DUP999") }); // always collides after the first
@@ -123,5 +144,36 @@ describe("AuditStore schema", () => {
     const s2 = openAuditStore({ dbPath });
     expect(s2.getBookingByReference("PERS01")?.reference).toBe(saved.reference);
     s2.close();
+  });
+
+  it("adds the customer_email column to a legacy database that predates it", () => {
+    // @spec AUDIT-DATA-002
+    const dbPath = tempDbPath();
+    // Create a legacy bookings table WITHOUT customer_email.
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL, origin TEXT NOT NULL, destination TEXT NOT NULL,
+        depart_date TEXT NOT NULL, return_date TEXT, cabin_class TEXT NOT NULL,
+        passengers_count INTEGER NOT NULL, total_price REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD', status TEXT NOT NULL DEFAULT 'confirmed',
+        criteria_json TEXT NOT NULL, option_json TEXT NOT NULL, passengers_json TEXT NOT NULL
+      );
+      CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, booking_id INTEGER NOT NULL,
+        booking_reference TEXT NOT NULL, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT 'internal-agent', amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD', payload_json TEXT NOT NULL
+      );
+    `);
+    legacy.close();
+
+    // Opening must migrate the column in, and a booking with an email must persist.
+    const store = openAuditStore({ dbPath, now: FIXED_NOW, generateReference: refSeq("MIG001") });
+    const saved = store.createBooking(makeBookingInput({ customerEmail: "legacy@example.com" }));
+    expect(saved.customerEmail).toBe("legacy@example.com");
+    expect(store.getBookingByReference("MIG001")?.customerEmail).toBe("legacy@example.com");
+    store.close();
   });
 });

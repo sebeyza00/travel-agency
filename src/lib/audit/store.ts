@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   total_price      REAL    NOT NULL,
   currency         TEXT    NOT NULL DEFAULT 'USD',
   status           TEXT    NOT NULL DEFAULT 'confirmed',
+  customer_email   TEXT,
   criteria_json    TEXT    NOT NULL,
   option_json      TEXT    NOT NULL,
   passengers_json  TEXT    NOT NULL
@@ -51,6 +52,7 @@ interface BookingRow {
   total_price: number;
   currency: string;
   status: string;
+  customer_email: string | null;
   criteria_json: string;
   option_json: string;
   passengers_json: string;
@@ -76,11 +78,20 @@ function rowToBooking(row: BookingRow): SavedBooking {
     criteria: JSON.parse(row.criteria_json),
     option: JSON.parse(row.option_json),
     passengers: JSON.parse(row.passengers_json),
+    customerEmail: row.customer_email ?? null,
     totalPrice: row.total_price,
     currency: row.currency as "USD",
     cabinClass: row.cabin_class as SavedBooking["cabinClass"],
     status: row.status as SavedBooking["status"],
   };
+}
+
+/** Idempotently add a nullable column if the table lacks it (additive migration). */
+function ensureColumn(db: Database.Database, table: string, column: string, type: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 function isUniqueViolation(err: unknown): boolean {
@@ -136,6 +147,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
   const db = new Database(dbPath);
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA); // idempotent (CREATE ... IF NOT EXISTS)
+  ensureColumn(db, "bookings", "customer_email", "TEXT"); // @spec AUDIT-DATA-002
 
   const generateReference = options.generateReference ?? defaultGenerateReference;
   const now = options.now ?? (() => new Date());
@@ -143,11 +155,11 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
   const insertBooking = db.prepare(
     `INSERT INTO bookings
        (reference, created_at, origin, destination, depart_date, return_date,
-        cabin_class, passengers_count, total_price, currency, status,
+        cabin_class, passengers_count, total_price, currency, status, customer_email,
         criteria_json, option_json, passengers_json)
      VALUES
        (@reference, @created_at, @origin, @destination, @depart_date, @return_date,
-        @cabin_class, @passengers_count, @total_price, @currency, @status,
+        @cabin_class, @passengers_count, @total_price, @currency, @status, @customer_email,
         @criteria_json, @option_json, @passengers_json)`,
   );
   const insertAudit = db.prepare(
@@ -171,6 +183,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
       total_price: input.option.price.total,
       currency: "USD",
       status: "confirmed",
+      customer_email: input.customerEmail ?? null,
       criteria_json: JSON.stringify(input.criteria),
       option_json: JSON.stringify(input.option),
       passengers_json: JSON.stringify(input.passengers),
@@ -182,6 +195,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
       criteria: input.criteria,
       option: input.option,
       passengers: input.passengers,
+      customerEmail: input.customerEmail ?? null,
       totalPrice: input.option.price.total,
       currency: "USD",
       cabinClass: input.option.cabinClass,

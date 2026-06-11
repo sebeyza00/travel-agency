@@ -4,7 +4,7 @@ import { Confirmation } from "@/components/Confirmation";
 import { makeCriteria, makeOption, makePassenger } from "@/test/fixtures";
 import type { SavedBooking } from "@/lib/booking/types";
 
-function savedBooking(): SavedBooking {
+function savedBooking(customerEmail: string | null = null): SavedBooking {
   const option = makeOption({ airlineName: "Delta", passengers: 2, perPassenger: 500, stops: 0 });
   return {
     id: 1,
@@ -13,6 +13,7 @@ function savedBooking(): SavedBooking {
     criteria: makeCriteria({ passengers: 2 }),
     option,
     passengers: [makePassenger({ firstName: "Jane" }), makePassenger({ firstName: "John" })],
+    customerEmail,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",
@@ -31,5 +32,25 @@ describe("Confirmation", () => {
     expect(screen.getByText(/john/i)).toBeInTheDocument(); // passenger
     expect(screen.getByText("$1000")).toBeInTheDocument(); // total price (exact; breakdown line shows the components)
     expect(screen.getByText(/2026-06-09/)).toBeInTheDocument(); // booking timestamp
+  });
+
+  it("shows 'emailed to {address}' when the confirmation was sent", () => {
+    // @spec BOOKING-UI-008
+    render(<Confirmation booking={savedBooking("cust@example.com")} emailStatus="sent" />);
+    expect(screen.getByText(/emailed to cust@example.com/i)).toBeInTheDocument();
+  });
+
+  it("shows a couldn't-email notice (booking still confirmed) when the send failed", () => {
+    // @spec BOOKING-UI-008
+    render(<Confirmation booking={savedBooking("cust@example.com")} emailStatus="failed" />);
+    expect(screen.getByText(/couldn.t email/i)).toBeInTheDocument();
+    expect(screen.getByText(/still confirmed/i)).toBeInTheDocument();
+  });
+
+  it("shows no email line when no email was sent (skipped)", () => {
+    // @spec BOOKING-UI-008
+    render(<Confirmation booking={savedBooking(null)} emailStatus="skipped" />);
+    expect(screen.queryByText(/emailed to/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/couldn.t email/i)).not.toBeInTheDocument();
   });
 });
