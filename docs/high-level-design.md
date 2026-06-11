@@ -44,15 +44,28 @@ agents on the internal network. Four load-bearing disciplines:
    booking. Delivery goes through an `EmailSender` interface (mock implementation in this
    MVP, swappable for a real provider).
 
+6. **Authenticated agents.** Agents register and log in with a password; the whole app is
+   gated behind a session. Passwords are hashed (scrypt), sessions are server-side records
+   keyed by an httpOnly cookie holding an opaque high-entropy random token, and middleware
+   redirects unauthenticated requests to the login page. Each booking records the agent who made it (the audit `actor`). All
+   signed-in agents are equal — no roles (see Non-Goals).
+
+7. **Shared customer profiles.** Agents save customers (contact + a set of travelers) to a
+   single shared directory. Any agent can search the directory and apply a saved customer to
+   prefill a booking's customer email and passenger rows. Profiles are a convenience layer
+   over booking; a booking still stands on its own snapshot (profiles are not referenced by
+   the immutable booking record).
+
 The mock provider is deliberately isolated behind an interface so a real GDS/airline
 integration can replace it without touching search UX, booking, or audit.
 
 ## Target Users
 
-Internal travel agents, already authenticated on our network. They are trusted, repeat
+Internal travel agents on our network, each with their own account. They are trusted, repeat
 users who value speed and, above all, confidence that they are seeing the complete set of
-options before they commit a customer to a booking. They are not the traveling customer —
-the customer receives only the confirmation the agent hands them.
+options before they commit a customer to a booking. Several agents share the tool and a
+common directory of customers. They are not the traveling customer — the customer receives
+only the confirmation the agent hands them.
 
 ## Goals
 
@@ -67,11 +80,18 @@ the customer receives only the confirmation the agent hands them.
 - The agent can select an option, capture passenger details, and book it.
 - Booking produces a confirmation with the full itinerary and a unique reference number.
 - Every booking is durably persisted and logged for finance reconciliation.
+- **Agents authenticate** with their own account (register + log in); the app is usable
+  only when signed in, and each booking is attributed to the agent who made it.
+- **Agents can save customer profiles** (contact + travelers) to a shared directory and
+  reuse a saved customer to prefill a booking — one-click rebooking for repeat customers.
 
 ## Non-Goals
 
-- **No authentication or user management.** Agents are already signed in on the internal
-  network; the app treats its user as a single trusted internal actor.
+- **No role-based access control.** Agents authenticate (register + log in), but all
+  authenticated agents are equal — there are no admin/agent roles or per-agent permissions,
+  and the shared customer directory is visible to every signed-in agent.
+- **No external identity provider.** Authentication is self-contained (password + session
+  cookie, accounts in the local database); no SSO, OAuth, or hosted auth service.
 - **No real airline/GDS integration in this MVP.** Flight data is mocked behind an
   interface. No real fares, seat inventory, or ticketing.
 - **No payment processing.** Booking records the intent and the priced itinerary; it does
@@ -83,7 +103,8 @@ the customer receives only the confirmation the agent hands them.
   an interface that records what would be sent; no real transactional email service,
   account, or deliverability handling. Swappable for a real provider later.
 - **Not mobile-first.** Desktop is the priority.
-- **No multi-agent collaboration, roles, or permissions** in this MVP.
+- **No real-time multi-agent collaboration.** Agents share a customer directory, but there
+  is no live co-editing, presence, or locking; last write wins.
 
 ## System Design
 
@@ -104,16 +125,24 @@ flowchart TD
     end
 
     subgraph Server [Next.js server]
+        Mw[[Middleware: require session]]
+        AuthAPI[/Routes: register / login / logout/]
+        ProfilesAPI[/Routes: customer profiles/]
         SearchAPI[/Route: search/]
         BookingAPI[/Route: bookings/]
         Provider[FlightProvider interface\n-> MockFlightProvider\ndeterministic, exhaustive]
         Email[EmailSender interface\n-> MockEmailSender]
-        DB[(SQLite\nbookings + audit_log)]
+        DB[(SQLite\nagents + sessions + customers\n+ bookings + audit_log)]
     end
 
+    Agent --> Mw
+    Agent --> AuthAPI --> DB
+    Mw -. "no session" .-> AuthAPI
     Agent --> SearchForm --> SearchAPI --> Provider
     Provider --> SearchAPI --> Results
-    Results --> BookingForm --> BookingAPI
+    Results --> BookingForm --> ProfilesAPI
+    ProfilesAPI --> DB
+    BookingForm --> BookingAPI
     BookingAPI --> DB
     BookingAPI -.->|"if customer email given (best-effort, after commit)"| Email
     BookingAPI --> Confirmation
@@ -131,6 +160,11 @@ flowchart TD
 - **AUDIT** — booking persistence and the append-only finance audit log.
 - **EMAIL** — the `EmailSender` interface, its mock implementation, and the confirmation
   email template; triggered by BOOKING after a booking is persisted.
+- **AUTH** — agent accounts (register/login/logout), password hashing, server-side sessions,
+  the signed session cookie, and the route-gating middleware. Supplies the current agent to
+  BOOKING (attribution) and to PROFILES.
+- **PROFILES** — the shared customer directory (customer = contact + travelers): create,
+  search, and apply-to-booking (prefill). Owned by no single agent; visible to all.
 
 Final segment boundaries are settled in Phase 2 (LLDs).
 
@@ -147,6 +181,11 @@ Final segment boundaries are settled in Phase 2 (LLDs).
 | Auth | None; single trusted internal actor | Explicitly out of scope per the brief | App-level login (out of scope) |
 | Stack | Next.js App Router + TypeScript + Tailwind, desktop-first | Matches the existing scaffold; one deployable; server + client in one place | Separate SPA + API backend (more parts than an MVP needs) |
 | Confirmation email | Optional; mock `EmailSender` behind an interface; best-effort after the booking commits | Consistent with the mock-provider pattern; never risks a booking for a notification; real provider slots in later | Required email (blocks bookings without an address); real provider now (first external integration, heavier); send inside the booking transaction (would couple a notification to durability) |
+| Authentication | Self-contained: scrypt password hash, server-side session rows, httpOnly cookie with an opaque random token, middleware gate | No external dependency; full control; fits the SQLite/self-contained ethos | Auth.js (heavy dep + config); hosted auth (external service, against MVP posture) |
+| Session model | Server-side session records in SQLite, referenced by a signed cookie | Revocable, simple to reason about, fits the existing DB | Stateless JWT cookie (harder to revoke; key management) |
+| Account provisioning | Open self-registration on the internal network | Simplest path to multiple agents; network is already trusted | Admin-seeded accounts (out-of-band maintenance) |
+| Customer profiles | One shared directory (contact + travelers); a convenience prefill, not referenced by the immutable booking snapshot | Any agent serves any returning customer; bookings stay self-contained | Per-agent profiles (siloed); booking references a profile id (couples the immutable record to mutable data) |
+| Roles | None — all authenticated agents are equal | MVP simplicity; no stated need for access tiers | RBAC (admin/agent) — added scope without a current requirement |
 
 ## Success Metrics
 

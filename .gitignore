@@ -19,8 +19,8 @@ npm-debug.log*
 # typescript
 *.tsbuildinfo
 
-# local data (SQLite)
-/data/*.db
+# local data (SQLite, incl. WAL/SHM sidecars)
+/data/
 
 # env
 .env*.local

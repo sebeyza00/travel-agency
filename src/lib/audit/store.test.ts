@@ -119,6 +119,25 @@ describe("AuditStore.createBooking", () => {
     store.close();
   });
 
+  it("attributes the booking to the supplied agent (actor + agent_email)", () => {
+    // @spec AUDIT-API-005, AUDIT-API-008
+    const store = open();
+    const saved = store.createBooking(makeBookingInput(), "agent@example.com");
+    expect(saved.agentEmail).toBe("agent@example.com");
+    expect(store.getBookingByReference("ABC234")?.agentEmail).toBe("agent@example.com");
+    expect(store.listAuditLog()[0].actor).toBe("agent@example.com");
+    store.close();
+  });
+
+  it("falls back to internal-agent / null when no agent is supplied", () => {
+    // @spec AUDIT-API-005, AUDIT-API-008
+    const store = open();
+    const saved = store.createBooking(makeBookingInput());
+    expect(saved.agentEmail).toBeNull();
+    expect(store.listAuditLog()[0].actor).toBe("internal-agent");
+    store.close();
+  });
+
   it("retries on reference collision and, when exhausted, fails without writing a partial row", () => {
     // @spec BOOKING-API-003, AUDIT-API-006
     const store = open({ generateReference: refSeq("DUP999") }); // always collides after the first
@@ -174,6 +193,37 @@ describe("AuditStore schema", () => {
     const saved = store.createBooking(makeBookingInput({ customerEmail: "legacy@example.com" }));
     expect(saved.customerEmail).toBe("legacy@example.com");
     expect(store.getBookingByReference("MIG001")?.customerEmail).toBe("legacy@example.com");
+    store.close();
+  });
+
+  it("adds the agent_email column to an email-era database that predates it", () => {
+    // @spec AUDIT-DATA-003
+    const dbPath = tempDbPath();
+    // Email-era schema: has customer_email but NOT agent_email.
+    const legacy = new Database(dbPath);
+    legacy.exec(`
+      CREATE TABLE bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL, origin TEXT NOT NULL, destination TEXT NOT NULL,
+        depart_date TEXT NOT NULL, return_date TEXT, cabin_class TEXT NOT NULL,
+        passengers_count INTEGER NOT NULL, total_price REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD', status TEXT NOT NULL DEFAULT 'confirmed',
+        customer_email TEXT,
+        criteria_json TEXT NOT NULL, option_json TEXT NOT NULL, passengers_json TEXT NOT NULL
+      );
+      CREATE TABLE audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, booking_id INTEGER NOT NULL,
+        booking_reference TEXT NOT NULL, event_type TEXT NOT NULL, occurred_at TEXT NOT NULL,
+        actor TEXT NOT NULL DEFAULT 'internal-agent', amount REAL NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'USD', payload_json TEXT NOT NULL
+      );
+    `);
+    legacy.close();
+
+    const store = openAuditStore({ dbPath, now: FIXED_NOW, generateReference: refSeq("MIG002") });
+    const saved = store.createBooking(makeBookingInput(), "agent@example.com");
+    expect(saved.agentEmail).toBe("agent@example.com");
+    expect(store.getBookingByReference("MIG002")?.agentEmail).toBe("agent@example.com");
     store.close();
   });
 });

@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   currency         TEXT    NOT NULL DEFAULT 'USD',
   status           TEXT    NOT NULL DEFAULT 'confirmed',
   customer_email   TEXT,
+  agent_email      TEXT,
   criteria_json    TEXT    NOT NULL,
   option_json      TEXT    NOT NULL,
   passengers_json  TEXT    NOT NULL
@@ -53,6 +54,7 @@ interface BookingRow {
   currency: string;
   status: string;
   customer_email: string | null;
+  agent_email: string | null;
   criteria_json: string;
   option_json: string;
   passengers_json: string;
@@ -79,6 +81,7 @@ function rowToBooking(row: BookingRow): SavedBooking {
     option: JSON.parse(row.option_json),
     passengers: JSON.parse(row.passengers_json),
     customerEmail: row.customer_email ?? null,
+    agentEmail: row.agent_email ?? null,
     totalPrice: row.total_price,
     currency: row.currency as "USD",
     cabinClass: row.cabin_class as SavedBooking["cabinClass"],
@@ -117,8 +120,8 @@ export interface AuditLogRow {
  * @spec AUDIT-API-004
  */
 export interface AuditStore {
-  /** @spec AUDIT-API-001, AUDIT-API-002, AUDIT-API-005, AUDIT-API-006, BOOKING-API-001, BOOKING-API-003 */
-  createBooking(input: BookingInput): SavedBooking;
+  /** @spec AUDIT-API-001, AUDIT-API-002, AUDIT-API-005, AUDIT-API-006, AUDIT-API-008, BOOKING-API-001, BOOKING-API-003 */
+  createBooking(input: BookingInput, agentEmail?: string | null): SavedBooking;
   getBookingByReference(reference: string): SavedBooking | null;
   listBookings(): SavedBooking[];
   listAuditLog(): AuditLogRow[];
@@ -128,6 +131,8 @@ export interface AuditStore {
 export interface OpenAuditStoreOptions {
   /** File path, or omit for an in-memory DB (tests). */
   dbPath?: string;
+  /** Use an existing shared connection (app); when omitted a connection is opened. */
+  db?: Database.Database;
   /** Injectable reference generator (tests force collisions). */
   generateReference?: () => string;
   /** Injectable clock for deterministic timestamps. */
@@ -141,13 +146,15 @@ export interface OpenAuditStoreOptions {
  */
 export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore {
   const dbPath = options.dbPath ?? ":memory:";
-  if (dbPath !== ":memory:") {
+  if (!options.db && dbPath !== ":memory:") {
     fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   }
-  const db = new Database(dbPath);
+  const db = options.db ?? new Database(dbPath);
+  const ownsDb = !options.db;
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA); // idempotent (CREATE ... IF NOT EXISTS)
   ensureColumn(db, "bookings", "customer_email", "TEXT"); // @spec AUDIT-DATA-002
+  ensureColumn(db, "bookings", "agent_email", "TEXT"); // @spec AUDIT-DATA-003
 
   const generateReference = options.generateReference ?? defaultGenerateReference;
   const now = options.now ?? (() => new Date());
@@ -155,11 +162,11 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
   const insertBooking = db.prepare(
     `INSERT INTO bookings
        (reference, created_at, origin, destination, depart_date, return_date,
-        cabin_class, passengers_count, total_price, currency, status, customer_email,
+        cabin_class, passengers_count, total_price, currency, status, customer_email, agent_email,
         criteria_json, option_json, passengers_json)
      VALUES
        (@reference, @created_at, @origin, @destination, @depart_date, @return_date,
-        @cabin_class, @passengers_count, @total_price, @currency, @status, @customer_email,
+        @cabin_class, @passengers_count, @total_price, @currency, @status, @customer_email, @agent_email,
         @criteria_json, @option_json, @passengers_json)`,
   );
   const insertAudit = db.prepare(
@@ -170,7 +177,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
   );
 
   // One transaction: booking row + audit row together, or neither (AUDIT-API-001/006).
-  const persist = db.transaction((reference: string, input: BookingInput, createdAt: string): SavedBooking => {
+  const persist = db.transaction((reference: string, input: BookingInput, createdAt: string, agentEmail: string | null): SavedBooking => {
     const info = insertBooking.run({
       reference,
       created_at: createdAt,
@@ -184,6 +191,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
       currency: "USD",
       status: "confirmed",
       customer_email: input.customerEmail ?? null,
+      agent_email: agentEmail,
       criteria_json: JSON.stringify(input.criteria),
       option_json: JSON.stringify(input.option),
       passengers_json: JSON.stringify(input.passengers),
@@ -196,6 +204,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
       option: input.option,
       passengers: input.passengers,
       customerEmail: input.customerEmail ?? null,
+      agentEmail,
       totalPrice: input.option.price.total,
       currency: "USD",
       cabinClass: input.option.cabinClass,
@@ -207,7 +216,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
       booking_reference: reference,
       event_type: "booking_created",
       occurred_at: createdAt,
-      actor: "internal-agent",
+      actor: agentEmail ?? "internal-agent",
       amount: saved.totalPrice,
       currency: "USD",
       payload_json: JSON.stringify(payload),
@@ -216,13 +225,14 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
   });
 
   return {
-    createBooking(input: BookingInput): SavedBooking {
+    createBooking(input: BookingInput, agentEmail?: string | null): SavedBooking {
       const createdAt = now().toISOString();
+      const attributedAgent = agentEmail ?? null;
       let lastErr: unknown;
       for (let attempt = 0; attempt < MAX_REFERENCE_ATTEMPTS; attempt++) {
         const reference = generateReference();
         try {
-          return persist(reference, input, createdAt);
+          return persist(reference, input, createdAt, attributedAgent);
         } catch (err) {
           // Transaction already rolled back; retry on collision, else propagate.
           lastErr = err;
@@ -261,7 +271,7 @@ export function openAuditStore(options: OpenAuditStoreOptions = {}): AuditStore 
     },
 
     close(): void {
-      db.close();
+      if (ownsDb) db.close();
     },
   };
 }

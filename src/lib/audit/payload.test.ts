@@ -13,6 +13,7 @@ function savedBooking(): SavedBooking {
     option,
     passengers: [makePassenger(), makePassenger({ firstName: "John" })],
     customerEmail: null,
+    agentEmail: null,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",

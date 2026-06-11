@@ -38,6 +38,7 @@ export interface SavedBooking {
   option: FlightOption;
   passengers: Passenger[];
   customerEmail: string | null; // optional confirmation recipient; null when none
+  agentEmail: string | null; // the agent who booked; null when unauthenticated/legacy
   totalPrice: number;
   currency: "USD";
   cabinClass: CabinClass;

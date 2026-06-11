@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   currency         TEXT    NOT NULL DEFAULT 'USD',
   status           TEXT    NOT NULL DEFAULT 'confirmed',
   customer_email   TEXT,                        -- optional confirmation recipient; null if none
+  agent_email      TEXT,                        -- the agent who made the booking (null for legacy rows)
   criteria_json    TEXT    NOT NULL,            -- full SearchCriteria snapshot
   option_json      TEXT    NOT NULL,            -- full FlightOption snapshot
   passengers_json  TEXT    NOT NULL             -- full passenger list snapshot
@@ -74,8 +75,10 @@ interface AuditStore {
   when none was given). It is part of the booking record only; it is **not** copied into the
   finance `AuditPayload` (email is not finance data) and email *delivery* is not logged here
   (see EMAIL LLD).
-- `actor` is the constant `'internal-agent'` — the app has a single trusted internal user
-  (no auth in scope per the HLD); the field exists so a real identity can populate it later.
+- `actor` is the **email of the authenticated agent** who made the booking (supplied by
+  AUTH via the booking route). When no agent is supplied (e.g. a legacy/unauthenticated
+  call), it falls back to the constant `'internal-agent'`. The booking's `agent_email`
+  column records the same attribution on the operational row.
 - `event_type` is `'booking_created'` in the MVP; the column generalizes to future events
   (e.g. `'booking_cancelled'`) without schema change.
 - `payload_json` carries everything finance needs to reconcile a line item without joining.

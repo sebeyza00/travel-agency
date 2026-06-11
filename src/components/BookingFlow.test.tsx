@@ -15,6 +15,7 @@ function savedBooking(): SavedBooking {
     option,
     passengers: [makePassenger()],
     customerEmail: null,
+    agentEmail: null,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",

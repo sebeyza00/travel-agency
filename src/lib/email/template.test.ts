@@ -13,6 +13,7 @@ function booking(roundTrip: boolean): SavedBooking {
     option,
     passengers: [makePassenger({ firstName: "Jane" }), makePassenger({ firstName: "John" })],
     customerEmail: "cust@example.com",
+    agentEmail: "agent@example.com",
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: "economy",

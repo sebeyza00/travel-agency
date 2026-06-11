@@ -15,6 +15,7 @@ function savedFrom(input: BookingInput): SavedBooking {
     option,
     passengers: input.passengers ?? [makePassenger()],
     customerEmail: input.customerEmail ?? null,
+    agentEmail: null,
     totalPrice: option.price.total,
     currency: "USD",
     cabinClass: option.cabinClass,

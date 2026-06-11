@@ -1,23 +1,40 @@
 "use client";
 // Flight Desk — orchestrates search -> results -> booking for an agent.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { SearchForm } from "@/components/SearchForm";
 import { ResultsView } from "@/components/ResultsView";
 import { BookingFlow } from "@/components/BookingFlow";
+import { AgentBar } from "@/components/AgentBar";
 import type { SearchCriteria } from "@/lib/search/criteria";
 import type { FlightOption, SearchResult } from "@/lib/flights/types";
 import type { BookingInput, BookingResult } from "@/lib/booking/types";
+import type { Agent } from "@/lib/auth/types";
 
 type Step = "search" | "results" | "booking";
 
 export default function Home() {
+  const router = useRouter();
+  const [agent, setAgent] = useState<Agent | null>(null);
   const [step, setStep] = useState<Step>("search");
   const [criteria, setCriteria] = useState<SearchCriteria | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [option, setOption] = useState<FlightOption | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setAgent)
+      .catch(() => setAgent(null));
+  }, []);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   async function handleSearch(c: SearchCriteria) {
     setLoading(true);
@@ -54,6 +71,7 @@ export default function Home() {
     <main className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Flight Desk</h1>
+        {agent && <AgentBar agent={agent} onLogout={logout} />}
         {step !== "search" && (
           <button
             type="button"

@@ -16,9 +16,11 @@ export async function confirmBooking(
   store: AuditStore,
   sender: EmailSender,
   input: BookingInput,
+  agentEmail?: string | null,
 ): Promise<BookingResult> {
-  // 1. Persist first — the booking is the source of truth.
-  const booking = store.createBooking(input);
+  // 1. Persist first — the booking is the source of truth. Attribution is
+  //    server-supplied (the authenticated agent), never from the client input.
+  const booking = store.createBooking(input, agentEmail);
 
   // 2. Best-effort email, strictly after persistence; failure never affects the booking.
   const to = (input.customerEmail ?? "").trim();
